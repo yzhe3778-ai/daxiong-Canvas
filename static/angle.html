@@ -582,19 +582,10 @@
         const camera = new THREE.PerspectiveCamera(75, 1, 0.1, 1000);
 
         // Renderer setup
-        let renderer = null;
-        try {
-            renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
-            renderer.setSize(container.clientWidth, container.clientHeight);
-            renderer.setPixelRatio(window.devicePixelRatio);
-            container.appendChild(renderer.domElement);
-        } catch (error) {
-            const fallback = document.createElement('div');
-            fallback.className = 'w-full h-full flex items-center justify-center text-[11px] font-bold uppercase tracking-[0.24em] text-zinc-500';
-            fallback.textContent = 'WebGL unavailable';
-            container.appendChild(fallback);
-            console.warn('Angle preview disabled:', error);
-        }
+        const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+        renderer.setSize(container.clientWidth, container.clientHeight);
+        renderer.setPixelRatio(window.devicePixelRatio);
+        container.appendChild(renderer.domElement);
 
         // Objects
         const geometry = new THREE.PlaneGeometry(3, 3);
@@ -732,7 +723,7 @@
         // Animation Loop
         function animate() {
             requestAnimationFrame(animate);
-            if (renderer) renderer.render(scene, camera);
+            renderer.render(scene, camera);
         }
         animate();
 
@@ -742,7 +733,7 @@
             const h = container.clientHeight;
             camera.aspect = w / h;
             camera.updateProjectionMatrix();
-            if (renderer) renderer.setSize(w, h);
+            renderer.setSize(w, h);
         });
         resizeObserver.observe(container);
 
@@ -781,7 +772,7 @@
                     const h = container.clientHeight;
                     camera.aspect = w / h;
                     camera.updateProjectionMatrix();
-                    if (renderer) renderer.setSize(w, h);
+                    renderer.setSize(w, h);
                 }, 100);
             });
         };
@@ -962,19 +953,25 @@
         async function runCloudTask() {
             if (!uploadedFile) throw new Error("Please upload an image first");
 
-            let hasServerToken = false;
+            // Get token from centralized management (Global server token first, legacy localStorage fallback)
+            let token = '';
             try {
                 const res = await fetch('/api/config/token');
                 if (res.ok) {
                     const data = await res.json();
-                    hasServerToken = !!data.has_token;
+                    if (data.token) token = data.token;
                 }
             } catch (e) {
                 console.warn("Failed to fetch global token", e);
             }
-            try { localStorage.removeItem('modelscope_api_token'); } catch (e) { }
+            if (token) {
+                // 自愈：清掉可能过期的旧版本地 Token，避免覆盖服务端有效 Token
+                try { localStorage.removeItem('modelscope_api_token'); } catch (e) { }
+            } else {
+                token = localStorage.getItem('modelscope_api_token') || '';
+            }
 
-            if (!hasServerToken) {
+            if (!token) {
                 if (window.parent && typeof window.parent.openTokenModal === 'function') {
                     window.parent.openTokenModal();
                     // Allow the error to propagate so user sees the message
@@ -1007,6 +1004,7 @@
 
             const payload = {
                 "prompt": promptInput.value,
+                "api_key": token,
                 "type": "angle",
                 "model": "Qwen/Qwen-Image-Edit-2511",
                 "image_urls": [dataUri],
@@ -1047,6 +1045,7 @@
                          // Call poll endpoint
                          const pollPayload = {
                              "task_id": taskId,
+                             "api_key": token,
                              "client_id": clientId
                          };
                          
